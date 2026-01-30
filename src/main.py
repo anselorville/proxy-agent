@@ -1,20 +1,23 @@
-"""Main application entry point for FastAPI."""
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from contextlib import asynccontextmanager
 import logging
 
 from src.api import auth, stocks
 from src.models.database import engine
 from src.tasks.celery_app import celery_app
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
+import time
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+api_requests_total = Counter('api_requests_total', 'Total API requests', ['method', 'endpoint', 'status'])
+api_request_duration = Histogram('api_request_duration_seconds', 'API request duration')
 
 
 @asynccontextmanager
@@ -66,12 +69,16 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
     return {
         "status": "healthy",
         "service": "china-stock-proxy",
         "celery": "connected" if celery_app else "not configured"
     }
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 if __name__ == "__main__":
