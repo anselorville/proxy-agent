@@ -44,6 +44,13 @@ class TestAPIEndpoints:
         assert "access_token" in data
         assert data["token_type"] == "bearer"
 
+    def test_authentication_login_invalid(self):
+        response = client.post(
+            "/api/v1/auth/token",
+            data={"username": "admin", "password": "wrong-password"}
+        )
+        assert response.status_code == 401
+
     def test_authentication_verify(self):
         """Test token verification endpoint."""
         response = client.get(
@@ -110,6 +117,13 @@ class TestAPIEndpoints:
         data = response.json()
         assert "data" in data
 
+    def test_get_daily_quotes_invalid_date(self):
+        response = client.get(
+            "/api/v1/stocks/daily?start_date=20240101",
+            headers=self.headers
+        )
+        assert response.status_code == 422
+
     def test_trigger_update_unauthorized(self):
         """Test trigger update endpoint without authentication."""
         response = client.get("/api/v1/stocks/trigger-update")
@@ -150,4 +164,5 @@ class TestAPIEndpoints:
         response = client.get("/metrics")
         assert response.status_code == 200
         metrics = response.text
-        assert "HELP" in metrics or "TYPE" in metrics
+        assert "api_requests_total" in metrics
+        assert "api_request_duration_seconds" in metrics

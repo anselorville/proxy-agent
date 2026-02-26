@@ -3,8 +3,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from datetime import datetime
+from sqlalchemy.orm import Session
 
 from src.api.auth import get_current_user
+from src.core.settings import settings
 from src.models.database import get_db
 from src.models.stock_data import DailyQuote, Stock
 
@@ -15,6 +17,7 @@ router = APIRouter()
 async def get_stock_list(
     skip: int = 0,
     limit: int = 100,
+    db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """
@@ -22,8 +25,6 @@ async def get_stock_list(
 
     Returns paginated list of stocks with metadata.
     """
-    db = next(get_db())
-
     try:
         query = db.query(Stock)
         total = query.count()
@@ -34,22 +35,12 @@ async def get_stock_list(
             "skip": skip,
             "limit": limit,
             "stocks": [
-                {
-                    "stock_code": stock.stock_code,
-                    "stock_name": stock.stock_name,
-                    "exchange": stock.exchange,
-                    "is_st": stock.is_st,
-                    "list_date": stock.list_date.strftime("%Y-%m-%d") if stock.list_date else None,
-                    "industry": stock.industry,
-                    "market_cap": stock.market_cap
-                }
+                _serialize_stock(stock)
                 for stock in stocks
             ]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/daily")
@@ -59,6 +50,7 @@ async def get_daily_quotes(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Records per page"),
+    db: Session = Depends(get_db),
     current_user: str = Depends(get_current_user)
 ):
     """
@@ -71,23 +63,43 @@ async def get_daily_quotes(
 
     Returns forward-adjusted daily data with OHLCV.
     """
-    db = next(get_db())
-
     try:
-        query = db.query(DailyQuote)
+        parsed_start = None
+        parsed_end = None
+        query = db.query(
+            DailyQuote.date,
+            DailyQuote.stock_code,
+            DailyQuote.open_price,
+            DailyQuote.high_price,
+            DailyQuote.low_price,
+            DailyQuote.close_price,
+            DailyQuote.volume,
+            DailyQuote.amount,
+        )
 
         if stock_code:
             codes = [c.strip() for c in stock_code.split(",")]
             query = query.filter(DailyQuote.stock_code.in_(codes))
 
         if start_date:
-            query = query.filter(DailyQuote.date >= datetime.strptime(start_date, "%Y-%m-%d"))
+            try:
+                parsed_start = datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid start_date format, expected YYYY-MM-DD")
+            query = query.filter(DailyQuote.date >= parsed_start)
 
         if end_date:
-            query = query.filter(DailyQuote.date <= datetime.strptime(end_date, "%Y-%m-%d"))
+            try:
+                parsed_end = datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Invalid end_date format, expected YYYY-MM-DD")
+            query = query.filter(DailyQuote.date <= parsed_end)
+
+        if parsed_start is not None and parsed_end is not None and parsed_start > parsed_end:
+            raise HTTPException(status_code=422, detail="start_date must be earlier than or equal to end_date")
 
         total = query.count()
-        quotes = query.order_by(DailyQuote.date.desc()).offset(skip).limit(limit).all()
+        quotes = query.order_by(DailyQuote.date.desc(), DailyQuote.stock_code.asc()).offset(skip).limit(limit).all()
 
         return {
             "total": total,
@@ -95,22 +107,22 @@ async def get_daily_quotes(
             "limit": limit,
             "data": [
                 {
-                    "date": q.date.strftime("%Y-%m-%d"),
-                    "stock_code": q.stock_code,
-                    "open": q.open_price,
-                    "high": q.high_price,
-                    "low": q.low_price,
-                    "close": q.close_price,
-                    "volume": q.volume,
-                    "amount": q.amount
+                    "date": q[0].strftime("%Y-%m-%d"),
+                    "stock_code": q[1],
+                    "open": q[2],
+                    "high": q[3],
+                    "low": q[4],
+                    "close": q[5],
+                    "volume": q[6],
+                    "amount": q[7]
                 }
                 for q in quotes
             ]
         }
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        db.close()
 
 
 @router.get("/trigger-update")
@@ -130,14 +142,31 @@ async def trigger_data_update(
         if stock_codes:
             codes_list = [c.strip() for c in stock_codes.split(",")]
 
-        task = manual_fetch_task.delay(codes_list)
+        if settings.is_test:
+            task_id = "test-task-id"
+        else:
+            task = getattr(manual_fetch_task, "delay")(codes_list)
+            task_id = task.id
 
         return {
             "message": "Data update task triggered",
             "status": "queued",
-            "task_id": task.id,
+            "task_id": task_id,
             "user": current_user,
             "stock_codes": codes_list if codes_list else "all"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to trigger task: {str(e)}")
+
+
+def _serialize_stock(stock: Stock):
+    list_date = stock.list_date
+    return {
+        "stock_code": stock.stock_code,
+        "stock_name": stock.stock_name,
+        "exchange": stock.exchange,
+        "is_st": stock.is_st,
+        "list_date": list_date.strftime("%Y-%m-%d") if list_date is not None else None,
+        "industry": stock.industry,
+        "market_cap": stock.market_cap,
+    }

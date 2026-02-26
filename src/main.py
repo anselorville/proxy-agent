@@ -1,14 +1,14 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from contextlib import asynccontextmanager
 import logging
 
 from src.api import auth, stocks
-from src.models.database import engine
 from src.tasks.celery_app import celery_app
+from src.core.settings import settings
+from src.models.database import Base, engine
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter, Histogram
-import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +25,8 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
     # Startup
     logger.info("Starting China Stock Proxy Service...")
+    if settings.is_test:
+        Base.metadata.create_all(bind=engine)
     yield
     # Shutdown
     logger.info("Shutting down China Stock Proxy Service...")
@@ -41,7 +43,7 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -50,6 +52,18 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(stocks.router, prefix="/api/v1/stocks", tags=["Stock Data"])
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    from time import perf_counter
+    start = perf_counter()
+    response = await call_next(request)
+    duration = perf_counter() - start
+    route = request.url.path
+    api_requests_total.labels(request.method, route, str(response.status_code)).inc()
+    api_request_duration.observe(duration)
+    return response
 
 
 @app.get("/")

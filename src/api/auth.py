@@ -1,19 +1,22 @@
 """Authentication endpoints for Bearer Token authentication."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-import os
+import hmac
 from typing import Optional
+
+from src.core.settings import settings
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# JWT Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+SECRET_KEY = settings.secret_key
+ALGORITHM = settings.algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.access_token_expire_minutes
+AUTH_USERNAME = settings.auth_username
+AUTH_PASSWORD = settings.auth_password
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
@@ -37,7 +40,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
+        username: Optional[str] = payload.get("sub")
         if username is None:
             raise credentials_exception
     except JWTError:
@@ -46,25 +49,22 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 
 @router.post("/token")
-async def login(username: str = "admin", password: str = "admin"):
-    """
-    Get access token.
-    
-    For production, replace this with proper authentication.
-    """
-    # In production, verify username and password against database
-    if username and password:
-        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        access_token = create_access_token(
-            data={"sub": username}, expires_delta=access_token_expires
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    username_ok = hmac.compare_digest(form_data.username, AUTH_USERNAME)
+    password_ok = hmac.compare_digest(form_data.password, AUTH_PASSWORD)
+
+    if not username_ok or not password_ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-        return {"access_token": access_token, "token_type": "bearer"}
-    
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Incorrect username or password",
-        headers={"WWW-Authenticate": "Bearer"},
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": form_data.username}, expires_delta=access_token_expires
     )
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.get("/verify")

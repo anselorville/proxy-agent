@@ -14,6 +14,8 @@ def test_config():
         "SECRET_KEY": "test-secret-key",
         "DATABASE_URL": "sqlite:///./test.db",
         "REDIS_URL": "redis://localhost:6379/1",
+        "AUTH_USERNAME": "admin",
+        "AUTH_PASSWORD": "admin",
     }
 
 
@@ -23,8 +25,12 @@ def mock_env_vars(monkeypatch):
     monkeypatch.setenv("SECRET_KEY", "test-secret-key")
     monkeypatch.setenv("DATABASE_URL", "sqlite:///./test.db")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/1")
+    monkeypatch.setenv("AUTH_USERNAME", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD", "admin")
     return {
         "SECRET_KEY": "test-secret-key",
         "DATABASE_URL": "sqlite:///./test.db",
         "REDIS_URL": "redis://localhost:6379/1",
+        "AUTH_USERNAME": "admin",
+        "AUTH_PASSWORD": "admin",
     }
