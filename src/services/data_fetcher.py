@@ -3,9 +3,16 @@
 import time
 import random
 import logging
-import akshare as ak
 
 logger = logging.getLogger(__name__)
+
+
+def _load_akshare():
+    try:
+        import akshare as ak
+    except ImportError as exc:
+        raise RuntimeError("akshare is required for data fetching") from exc
+    return ak
 
 
 class DataFetcher:
@@ -61,6 +68,7 @@ class DataFetcher:
                     if proxy_dict:
                         logger.debug(f"Using proxy: {proxy_dict.get('http')}")
 
+                ak = _load_akshare()
                 df = ak.stock_zh_a_hist(
                     symbol=stock_code,
                     period="daily",
@@ -146,6 +154,7 @@ class DataFetcher:
                     if proxy_dict:
                         logger.debug(f"Using proxy: {proxy_dict.get('http')}")
 
+                ak = _load_akshare()
                 df = ak.stock_info_a_code_name()
 
                 if df is not None and not df.empty:

@@ -1,6 +1,6 @@
 """Stock data models for financial time-series data."""
 
-from sqlalchemy import Column, String, Float, BigInteger, DateTime, Boolean, Integer
+from sqlalchemy import Column, String, Float, BigInteger, DateTime, Boolean, Integer, Index, UniqueConstraint
 from sqlalchemy.sql import func
 from src.models.database import Base
 
@@ -32,7 +32,7 @@ class DailyQuote(Base):
     
     __tablename__ = "daily_quotes"
     
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     stock_code = Column(String(10), nullable=False, index=True)
     date = Column(DateTime, nullable=False, index=True)  # Partition key for TimescaleDB
     open_price = Column(Float, nullable=False)
@@ -50,7 +50,8 @@ class DailyQuote(Base):
     
     # Composite index for efficient queries
     __table_args__ = (
-        {'schema': 'public'}
+        Index("ix_daily_quotes_stock_date", "stock_code", "date"),
+        UniqueConstraint("stock_code", "date", name="uq_daily_quotes_stock_date"),
     )
 
 

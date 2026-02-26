@@ -22,6 +22,7 @@ class TestIntegration:
     def db_session(self):
         """Create test database session."""
         engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+        Base.metadata.drop_all(bind=engine)
         Base.metadata.create_all(bind=engine)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
         session = SessionLocal()
@@ -37,7 +38,7 @@ class TestIntegration:
     @pytest.fixture(scope="class")
     def frequency_controller(self):
         """Create frequency controller for testing."""
-        return FrequencyController(interval=1)
+        return FrequencyController(requests_per_second=1)
 
     @pytest.fixture(scope="class")
     def data_fetcher(self, proxy_manager, frequency_controller):
