@@ -117,6 +117,9 @@ celery -A src.tasks.celery_app beat --loglevel=info
 | `DATABASE_URL` | PostgreSQL连接字符串 | - |
 | `REDIS_URL` | Redis连接字符串 | - |
 | `SECRET_KEY` | JWT密钥 | - |
+| `AUTH_USERNAME` | API登录用户名 | - |
+| `AUTH_PASSWORD` | API登录密码 | - |
+| `CORS_ALLOWED_ORIGINS` | CORS允许来源，逗号分隔 | `http://localhost:3000,http://127.0.0.1:3000` |
 | `PROXY_POOL_SIZE` | 代理池大小 | 5 |
 | `REQUEST_INTERVAL` | 请求间隔（秒） | 2 |
 | `MAX_RETRIES` | 失败重试次数 | 3 |
@@ -179,6 +182,24 @@ docker-compose up -d
 - **日志级别**：INFO（可通过环境变量调整）
 - **日志位置**：控制台输出 + 文件（可选）
 - **监控指标**：任务执行状态、代理成功率、API请求延迟
+
+### 运行检查（建议）
+
+```bash
+# 1) 健康检查
+curl -sS http://localhost:8000/health
+
+# 2) 获取 token
+TOKEN=$(curl -sS -X POST "http://localhost:8000/api/v1/auth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=${AUTH_USERNAME}&password=${AUTH_PASSWORD}" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# 3) 验证受保护接口
+curl -sS -H "Authorization: Bearer ${TOKEN}" "http://localhost:8000/api/v1/stocks/daily?stock_code=000001&limit=20"
+
+# 4) 验证监控指标
+curl -sS http://localhost:8000/metrics
+```
 
 ## 贡献指南
 
